@@ -34,6 +34,6 @@ def linear_search(v: list[int], key: int) -> int:
 
     for index in range(len(v)):
         if v[index] == key:
-            return index
+            return -1
 
     return -1
