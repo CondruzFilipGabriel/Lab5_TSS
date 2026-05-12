@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  test-and-coverage:
+    name: Tests and coverage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r requirements.txt
+
+      - name: Run tests with coverage
+        run: |
+          python3 -m coverage erase
+          python3 -m coverage run -m pytest -q
+          python3 -m coverage html
+
+      - name: Enforce coverage threshold
+        run: |
+          python3 -m coverage report -m --fail-under=80
+
+      - name: Upload coverage HTML artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-html-report
+          path: htmlcov/
+          if-no-files-found: warn
+
+      - name: Create failure notification issue
+        if: failure() && github.event_name == 'push'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "CI failed: ${{ github.workflow }} #${{ github.run_number }}" \
+            --body "Pipeline-ul CI a esuat.
+
+          Repository: ${{ github.repository }}
+          Branch: ${{ github.ref_name }}
+          Commit: ${{ github.sha }}
+          Autor push: ${{ github.actor }}
+
+          Verifica rularea aici:
+          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --assignee "${{ github.actor }}"
+
+  mutation-testing:
+    name: Mutation testing
+    runs-on: ubuntu-latest
+    needs: test-and-coverage
+    continue-on-error: true
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r requirements.txt
+
+      - name: Run mutation testing
+        run: |
+          set +e
+          mutmut run
+          MUTMUT_EXIT_CODE=$?
+          mutmut results > mutmut-results.txt 2>&1
+          echo "" >> mutmut-results.txt
+          echo "mutmut exit code: $MUTMUT_EXIT_CODE" >> mutmut-results.txt
+          exit $MUTMUT_EXIT_CODE
+
+      - name: Upload mutation testing artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-testing-results
+          path: mutmut-results.txt
+          if-no-files-found: warn
